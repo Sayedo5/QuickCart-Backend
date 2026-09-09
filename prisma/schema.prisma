@@ -1,0 +1,490 @@
+// QuickCart — Neon (PostgreSQL) schema managed by Prisma.
+// Run `npx prisma migrate dev --name <change>` after editing.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")   // pooled connection for the running server
+  directUrl = env("DIRECT_URL")     // direct connection for migrations
+}
+
+// ───────────────────────── Enums ─────────────────────────
+
+enum Role {
+  CUSTOMER
+  RIDER
+  ADMIN
+}
+
+enum StoreCategory {
+  RESTAURANTS
+  GROCERY
+  PHARMACY
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum OrderStatus {
+  PLACED
+  CONFIRMED
+  PREPARING
+  PICKED_UP
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentMethodType {
+  CASH
+  CARD
+  WALLET
+  JAZZCASH
+  EASYPAISA
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum OtpPurpose {
+  LOGIN
+  SIGNUP
+}
+
+enum DiscountType {
+  PERCENT
+  FLAT
+  FREE_DELIVERY
+}
+
+enum WalletTxType {
+  TOPUP
+  PAYMENT
+  REFUND
+  CASHBACK
+}
+
+enum NotificationType {
+  ORDER
+  PROMO
+  WALLET
+  SYSTEM
+}
+
+enum BannerTarget {
+  OFFERS
+  STORE
+  CATEGORY
+  EXTERNAL
+}
+
+// ───────────────────────── Users & auth ─────────────────────────
+
+model User {
+  id            String    @id @default(uuid())
+  name          String
+  email         String    @unique
+  phone         String?
+  dialCode      String    @default("+92")
+  avatarUrl     String?
+  role          Role      @default(CUSTOMER)
+  /// Only set for admin accounts that log in to the admin panel with a password.
+  passwordHash  String?
+  isVerified    Boolean   @default(false)
+  isBlocked     Boolean   @default(false)
+  walletBalance Float     @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  addresses          Address[]
+  orders             Order[]
+  reviews            Review[]
+  favourites         Favourite[]
+  paymentMethods     PaymentMethod[]
+  walletTransactions WalletTransaction[]
+  notifications      Notification[]
+  pushTokens         PushToken[]
+  refreshTokens      RefreshToken[]
+  rider              Rider?
+
+  @@index([role])
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  token     String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model Otp {
+  id        String     @id @default(uuid())
+  email     String
+  code      String
+  purpose   OtpPurpose @default(LOGIN)
+  isUsed    Boolean    @default(false)
+  attempts  Int        @default(0)
+  expiresAt DateTime
+  createdAt DateTime   @default(now())
+
+  @@index([email, createdAt])
+}
+
+model PushToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  platform  String
+  createdAt DateTime @default(now())
+}
+
+model Address {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label        String   // Home | Work | Other
+  street       String
+  apartment    String?
+  city         String
+  instructions String?
+  lat          Float
+  lng          Float
+  isDefault    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ───────────────────────── Catalog ─────────────────────────
+
+model Category {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  icon      String?
+  imageUrl  String?
+  type      String   @default("store") // "store" | "product"
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model Store {
+  id              String         @id @default(uuid())
+  name            String
+  category        StoreCategory
+  area            String
+  address         String
+  description     String?
+  imageUrl        String?
+  coverImageUrl   String?
+  lat             Float
+  lng             Float
+  rating          Float          @default(0)
+  ratingCount     Int            @default(0)
+  deliveryTimeMin Int            @default(20)
+  deliveryTimeMax Int            @default(30)
+  deliveryFee     Float          @default(0)
+  minOrderAmount  Float          @default(0)
+  distanceKm      Float?
+  tags            String[]       @default([])
+  promoLabel      String?
+  isOpen          Boolean        @default(true)
+  /// New store applications wait here until an admin approves them.
+  status          ApprovalStatus @default(PENDING)
+  rejectionReason String?
+  ownerName       String?
+  ownerContact    String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  menuCategories MenuCategory[]
+  products       Product[]
+  orders         Order[]
+  reviews        Review[]
+  favourites     Favourite[]
+
+  @@index([category, status])
+}
+
+/// Menu sections inside one store (Starters, Karahi, Drinks…).
+model MenuCategory {
+  id        String    @id @default(uuid())
+  storeId   String
+  store     Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name      String
+  sortOrder Int       @default(0)
+  products  Product[]
+
+  @@index([storeId])
+}
+
+model Product {
+  id              String        @id @default(uuid())
+  storeId         String
+  store           Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  menuCategoryId  String?
+  menuCategory    MenuCategory? @relation(fields: [menuCategoryId], references: [id], onDelete: SetNull)
+  name            String
+  description     String?
+  price           Float
+  compareAtPrice  Float?
+  discountPercent Float         @default(0)
+  imageUrl        String?
+  unit            String?
+  isVeg           Boolean?
+  isPopular       Boolean       @default(false)
+  inStock         Boolean       @default(true)
+  sortOrder       Int           @default(0)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([storeId, menuCategoryId])
+}
+
+model Banner {
+  id          String       @id @default(uuid())
+  title       String
+  subtitle    String?
+  label       String?
+  imageUrl    String?
+  targetType  BannerTarget @default(OFFERS)
+  targetValue String?
+  colorFrom   String       @default("#FF6B35")
+  colorTo     String       @default("#FF8F5E")
+  sortOrder   Int          @default(0)
+  isActive    Boolean      @default(true)
+  startsAt    DateTime?
+  endsAt      DateTime?
+  createdAt   DateTime     @default(now())
+}
+
+model Coupon {
+  id             String       @id @default(uuid())
+  code           String       @unique
+  description    String
+  discountType   DiscountType
+  discountValue  Float        @default(0)
+  maxDiscount    Float?
+  minOrderAmount Float        @default(0)
+  expiryDate     DateTime
+  isActive       Boolean      @default(true)
+  usageLimit     Int?
+  usedCount      Int          @default(0)
+  createdAt      DateTime     @default(now())
+}
+
+model Faq {
+  id        String  @id @default(uuid())
+  question  String
+  answer    String
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+}
+
+model Settings {
+  id                String   @id @default("global")
+  currencySymbol    String   @default("Rs")
+  taxPercent        Float    @default(16)
+  taxLabel          String   @default("GST (16%)")
+  platformFee       Float    @default(29)
+  baseDeliveryFee   Float    @default(99)
+  minOrderDefault   Float    @default(300)
+  serviceCity       String   @default("Lahore")
+  supportEmail      String?
+  supportPhone      String?
+  supportWhatsApp   String?
+  termsUrl          String?
+  privacyUrl        String?
+  announcementTitle String?
+  announcementBody  String?
+  appBannerImages   String[] @default([])
+  updatedAt         DateTime @updatedAt
+}
+
+// ───────────────────────── Orders ─────────────────────────
+
+model Order {
+  id                 String            @id @default(uuid())
+  orderNumber        String            @unique
+  userId             String
+  user               User              @relation(fields: [userId], references: [id])
+  storeId            String
+  store              Store             @relation(fields: [storeId], references: [id])
+  riderId            String?
+  rider              Rider?            @relation(fields: [riderId], references: [id])
+  items              OrderItem[]
+  subtotal           Float
+  deliveryFee        Float
+  serviceFee         Float             @default(0)
+  tax                Float
+  discount           Float             @default(0)
+  total              Float
+  couponCode         String?
+  paymentMethodType  PaymentMethodType @default(CASH)
+  paymentMethodLabel String            @default("Cash on Delivery")
+  paymentStatus      PaymentStatus     @default(PENDING)
+  status             OrderStatus       @default(PLACED)
+  /// Snapshot of the delivery address at order time (addresses can be edited later).
+  addressLabel       String
+  addressLine        String
+  addressCity        String
+  addressLat         Float
+  addressLng         Float
+  note               String?
+  estimatedDeliveryAt DateTime?
+  cancelledReason    String?
+  statusHistory      StatusLog[]
+  review             Review?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([status])
+}
+
+model OrderItem {
+  id        String  @id @default(uuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String?
+  name      String
+  imageUrl  String?
+  unit      String?
+  price     Float
+  quantity  Int
+}
+
+model StatusLog {
+  id        String      @id @default(uuid())
+  orderId   String
+  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status    OrderStatus
+  note      String?
+  timestamp DateTime    @default(now())
+
+  @@index([orderId])
+}
+
+// ───────────────────────── Riders & reviews ─────────────────────────
+
+model Rider {
+  id              String         @id @default(uuid())
+  /// Optional link to a login account (role RIDER) once the rider app exists.
+  userId          String?        @unique
+  user            User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  name            String
+  email           String         @unique
+  phone           String
+  vehicleType     String?
+  plateNumber     String?
+  imageUrl        String?
+  documentUrls    String[]       @default([])
+  status          ApprovalStatus @default(PENDING)
+  rejectionReason String?
+  isAvailable     Boolean        @default(false)
+  currentLat      Float?
+  currentLng      Float?
+  heading         Float?
+  lastLocationAt  DateTime?
+  rating          Float          @default(0)
+  ratingCount     Int            @default(0)
+  completedOrders Int            @default(0)
+  orders          Order[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([status, isAvailable])
+}
+
+model Review {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  storeId    String
+  store      Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  orderId    String?  @unique
+  order      Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  rating     Int
+  comment    String?
+  tags       String[] @default([])
+  tip        Float    @default(0)
+  isApproved Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  @@index([storeId])
+}
+
+// ───────────────────────── Account extras ─────────────────────────
+
+model Favourite {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, storeId])
+}
+
+/// Card PANs are never stored — only the brand + last 4 (tokenise with the gateway later).
+model PaymentMethod {
+  id           String            @id @default(uuid())
+  userId       String
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type         PaymentMethodType
+  label        String
+  brand        String?
+  last4        String?
+  expiry       String?
+  mobileNumber String?
+  isDefault    Boolean           @default(false)
+  createdAt    DateTime          @default(now())
+
+  @@index([userId])
+}
+
+model WalletTransaction {
+  id        String       @id @default(uuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      WalletTxType
+  amount    Float
+  title     String
+  subtitle  String?
+  orderId   String?
+  createdAt DateTime     @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  body      String
+  type      NotificationType @default(SYSTEM)
+  orderId   String?
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  @@index([userId, createdAt])
+}

@@ -1,0 +1,7 @@
+node_modules
+dist
+*.log
+postman_collection.json
+DATABASE.md
+SETUP.md
+scripts

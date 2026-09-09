@@ -1,0 +1,436 @@
+{
+  "info": {
+    "name": "QuickCart API",
+    "description": "Express + Prisma + Neon backend for the QuickCart delivery platform. Every response uses the envelope { success, data, message, error }. Set {{baseUrl}} and sign in first; the login requests save tokens to collection variables automatically.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:4000/api/v1" },
+    { "key": "accessToken", "value": "" },
+    { "key": "refreshToken", "value": "" },
+    { "key": "adminToken", "value": "" },
+    { "key": "email", "value": "customer@example.com" },
+    { "key": "otpCode", "value": "123456" },
+    { "key": "signupToken", "value": "" },
+    { "key": "storeId", "value": "" },
+    { "key": "productId", "value": "" },
+    { "key": "orderId", "value": "" },
+    { "key": "riderId", "value": "" },
+    { "key": "addressId", "value": "" },
+    { "key": "paymentMethodId", "value": "" }
+  ],
+  "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        { "name": "Health check", "request": { "method": "GET", "url": "http://localhost:4000/health", "auth": { "type": "noauth" } } }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Send OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const b = pm.response.json();",
+                  "if (b.data && b.data.devCode) pm.collectionVariables.set('otpCode', b.data.devCode);",
+                  "pm.test('ok', () => pm.expect(b.success).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{email}}\",\n  \"purpose\": \"login\"\n}" },
+            "url": "{{baseUrl}}/auth/send-otp",
+            "description": "Emails a 6-digit code. In development without SMTP the code is returned as data.devCode and logged to the server console."
+          }
+        },
+        {
+          "name": "Verify OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const b = pm.response.json();",
+                  "if (b.data && b.data.signupToken) pm.collectionVariables.set('signupToken', b.data.signupToken);",
+                  "if (b.data && b.data.tokens) {",
+                  "  pm.collectionVariables.set('accessToken', b.data.tokens.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', b.data.tokens.refreshToken);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{email}}\",\n  \"code\": \"{{otpCode}}\"\n}" },
+            "url": "{{baseUrl}}/auth/verify-otp",
+            "description": "Returns { isNewUser: false, user, tokens } for an existing account, or { isNewUser: true, signupToken } for a new email."
+          }
+        },
+        {
+          "name": "Complete signup",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const b = pm.response.json();",
+                  "if (b.data && b.data.tokens) {",
+                  "  pm.collectionVariables.set('accessToken', b.data.tokens.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', b.data.tokens.refreshToken);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"signupToken\": \"{{signupToken}}\",\n  \"name\": \"Ahmed Raza\",\n  \"phone\": \"03001234567\",\n  \"dialCode\": \"+92\"\n}" },
+            "url": "{{baseUrl}}/auth/signup"
+          }
+        },
+        {
+          "name": "Admin login",
+          "event": [
+            {
+              "listen": "test",
+              "script": { "exec": ["const b = pm.response.json();", "if (b.data && b.data.tokens) pm.collectionVariables.set('adminToken', b.data.tokens.accessToken);"] }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"admin@quickcart.pk\",\n  \"password\": \"Admin@12345\"\n}" },
+            "url": "{{baseUrl}}/auth/admin/login",
+            "description": "Password login, restricted to accounts with role ADMIN."
+          }
+        },
+        {
+          "name": "Refresh tokens",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}" },
+            "url": "{{baseUrl}}/auth/refresh"
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}" },
+            "url": "{{baseUrl}}/auth/logout"
+          }
+        },
+        { "name": "Me", "request": { "method": "GET", "url": "{{baseUrl}}/auth/me" } }
+      ]
+    },
+    {
+      "name": "Catalog (public)",
+      "item": [
+        { "name": "App settings", "request": { "method": "GET", "auth": { "type": "noauth" }, "url": "{{baseUrl}}/settings/public" } },
+        { "name": "Banners", "request": { "method": "GET", "auth": { "type": "noauth" }, "url": "{{baseUrl}}/banners" } },
+        { "name": "Categories", "request": { "method": "GET", "auth": { "type": "noauth" }, "url": "{{baseUrl}}/categories" } },
+        {
+          "name": "List stores",
+          "event": [
+            { "listen": "test", "script": { "exec": ["const b = pm.response.json();", "if (b.data && b.data.items && b.data.items[0]) pm.collectionVariables.set('storeId', b.data.items[0].id);"] } }
+          ],
+          "request": {
+            "method": "GET",
+            "auth": { "type": "noauth" },
+            "url": { "raw": "{{baseUrl}}/stores?page=1&perPage=20", "host": ["{{baseUrl}}"], "path": ["stores"], "query": [{ "key": "page", "value": "1" }, { "key": "perPage", "value": "20" }, { "key": "category", "value": "restaurants", "disabled": true }, { "key": "q", "value": "biryani", "disabled": true }] }
+          }
+        },
+        { "name": "Get store", "request": { "method": "GET", "auth": { "type": "noauth" }, "url": "{{baseUrl}}/stores/{{storeId}}" } },
+        {
+          "name": "Store menu",
+          "event": [
+            { "listen": "test", "script": { "exec": ["const b = pm.response.json();", "if (b.data && b.data.products && b.data.products[0]) pm.collectionVariables.set('productId', b.data.products[0].id);"] } }
+          ],
+          "request": { "method": "GET", "auth": { "type": "noauth" }, "url": "{{baseUrl}}/stores/{{storeId}}/menu" }
+        },
+        { "name": "Store reviews", "request": { "method": "GET", "auth": { "type": "noauth" }, "url": "{{baseUrl}}/stores/{{storeId}}/reviews" } },
+        { "name": "Search", "request": { "method": "GET", "auth": { "type": "noauth" }, "url": { "raw": "{{baseUrl}}/search?q=biryani", "host": ["{{baseUrl}}"], "path": ["search"], "query": [{ "key": "q", "value": "biryani" }] } } },
+        { "name": "Coupons", "request": { "method": "GET", "auth": { "type": "noauth" }, "url": "{{baseUrl}}/coupons" } },
+        {
+          "name": "Validate coupon",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"code\": \"WELCOME20\",\n  \"subtotal\": 1200\n}" },
+            "url": "{{baseUrl}}/coupons/validate"
+          }
+        },
+        { "name": "FAQs", "request": { "method": "GET", "auth": { "type": "noauth" }, "url": "{{baseUrl}}/content/faqs" } },
+        {
+          "name": "Apply as a store",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Lahore Tandoor House\",\n  \"category\": \"restaurants\",\n  \"area\": \"Garden Town\",\n  \"address\": \"Main Boulevard, Garden Town, Lahore\",\n  \"description\": \"Fresh tandoor rotis and desi handi.\",\n  \"location\": { \"latitude\": 31.4934, \"longitude\": 74.3005 },\n  \"ownerName\": \"Rizwan Haider\",\n  \"ownerContact\": \"03005556677\"\n}" },
+            "url": "{{baseUrl}}/stores/apply",
+            "description": "Creates a PENDING store for an admin to approve."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Account",
+      "item": [
+        {
+          "name": "Update profile",
+          "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Ahmed Raza\"\n}" }, "url": "{{baseUrl}}/users/me" }
+        },
+        {
+          "name": "Register push token",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"token\": \"ExponentPushToken[xxxxxxxx]\",\n  \"platform\": \"android\"\n}" }, "url": "{{baseUrl}}/users/me/push-token" }
+        },
+        { "name": "List addresses", "request": { "method": "GET", "url": "{{baseUrl}}/addresses" } },
+        {
+          "name": "Add address",
+          "event": [{ "listen": "test", "script": { "exec": ["const b = pm.response.json();", "if (b.data) pm.collectionVariables.set('addressId', b.data.id);"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"label\": \"Home\",\n  \"street\": \"House 12, Street 5, Sector A\",\n  \"apartment\": \"DHA Phase 6\",\n  \"city\": \"Lahore, Punjab\",\n  \"instructions\": \"Ring the bell twice.\",\n  \"isDefault\": true,\n  \"location\": { \"latitude\": 31.479, \"longitude\": 74.438 }\n}" },
+            "url": "{{baseUrl}}/addresses"
+          }
+        },
+        { "name": "Update address", "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"label\": \"Work\"\n}" }, "url": "{{baseUrl}}/addresses/{{addressId}}" } },
+        { "name": "Delete address", "request": { "method": "DELETE", "url": "{{baseUrl}}/addresses/{{addressId}}" } },
+        {
+          "name": "List payment methods",
+          "event": [{ "listen": "test", "script": { "exec": ["const b = pm.response.json();", "if (b.data && b.data[0]) pm.collectionVariables.set('paymentMethodId', b.data[0].id);"] } }],
+          "request": { "method": "GET", "url": "{{baseUrl}}/payment-methods" }
+        },
+        {
+          "name": "Add card (Luhn checked)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"type\": \"card\",\n  \"holder\": \"Ahmed Raza\",\n  \"number\": \"4242424242424242\",\n  \"expiry\": \"08/30\"\n}" },
+            "url": "{{baseUrl}}/payment-methods",
+            "description": "The PAN is validated with the Luhn algorithm and then discarded — only brand and last4 are stored."
+          }
+        },
+        {
+          "name": "Link JazzCash / Easypaisa",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"type\": \"easypaisa\",\n  \"mobileNumber\": \"03451234567\"\n}" },
+            "url": "{{baseUrl}}/payment-methods"
+          }
+        },
+        { "name": "Delete payment method", "request": { "method": "DELETE", "url": "{{baseUrl}}/payment-methods/{{paymentMethodId}}" } },
+        { "name": "Favourites (ids)", "request": { "method": "GET", "url": "{{baseUrl}}/favourites" } },
+        { "name": "Favourite stores", "request": { "method": "GET", "url": "{{baseUrl}}/favourites/stores" } },
+        { "name": "Add favourite", "request": { "method": "POST", "url": "{{baseUrl}}/favourites/{{storeId}}" } },
+        { "name": "Remove favourite", "request": { "method": "DELETE", "url": "{{baseUrl}}/favourites/{{storeId}}" } },
+        { "name": "Wallet", "request": { "method": "GET", "url": "{{baseUrl}}/wallet" } },
+        { "name": "Top up wallet", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"amount\": 1000,\n  \"source\": \"JazzCash\"\n}" }, "url": "{{baseUrl}}/wallet/top-up" } },
+        { "name": "Notifications", "request": { "method": "GET", "url": "{{baseUrl}}/notifications" } },
+        { "name": "Mark notifications read", "request": { "method": "POST", "url": "{{baseUrl}}/notifications/read-all" } }
+      ]
+    },
+    {
+      "name": "Orders",
+      "item": [
+        {
+          "name": "Quote cart",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"storeId\": \"{{storeId}}\",\n  \"items\": [{ \"productId\": \"{{productId}}\", \"quantity\": 2 }],\n  \"promoCode\": \"WELCOME20\"\n}" },
+            "url": "{{baseUrl}}/orders/quote",
+            "description": "Server-calculated subtotal, delivery fee, platform fee, tax, discount and total, plus any out-of-stock or price-changed issues."
+          }
+        },
+        {
+          "name": "Place order",
+          "event": [{ "listen": "test", "script": { "exec": ["const b = pm.response.json();", "if (b.data) pm.collectionVariables.set('orderId', b.data.id);"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"storeId\": \"{{storeId}}\",\n  \"items\": [{ \"productId\": \"{{productId}}\", \"quantity\": 2 }],\n  \"promoCode\": \"WELCOME20\",\n  \"addressId\": \"{{addressId}}\",\n  \"paymentMethodId\": \"{{paymentMethodId}}\",\n  \"note\": \"Ring the bell\"\n}" },
+            "url": "{{baseUrl}}/orders"
+          }
+        },
+        { "name": "My orders", "request": { "method": "GET", "url": "{{baseUrl}}/orders/my" } },
+        { "name": "Get order", "request": { "method": "GET", "url": "{{baseUrl}}/orders/{{orderId}}" } },
+        { "name": "Cancel order", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"reason\": \"Changed my mind\"\n}" }, "url": "{{baseUrl}}/orders/{{orderId}}/cancel" } },
+        { "name": "Review order", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"stars\": 5,\n  \"comment\": \"Hot and fast\",\n  \"tags\": [\"On time\"],\n  \"tip\": 100\n}" }, "url": "{{baseUrl}}/orders/{{orderId}}/review" } },
+        {
+          "name": "All orders (admin)",
+          "request": {
+            "method": "GET",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}" }] },
+            "url": { "raw": "{{baseUrl}}/orders/all?page=1&perPage=25", "host": ["{{baseUrl}}"], "path": ["orders", "all"], "query": [{ "key": "page", "value": "1" }, { "key": "perPage", "value": "25" }, { "key": "status", "value": "placed", "disabled": true }] }
+          }
+        },
+        {
+          "name": "Update status (admin/rider)",
+          "request": {
+            "method": "PUT",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"confirmed\",\n  \"note\": \"Store accepted\"\n}" },
+            "url": "{{baseUrl}}/orders/{{orderId}}/status",
+            "description": "Emits order:status over Socket.io and sends a push notification. Valid: placed → confirmed → preparing → picked_up → delivered, or cancelled."
+          }
+        },
+        {
+          "name": "Assign rider (admin)",
+          "request": {
+            "method": "PUT",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"riderId\": \"{{riderId}}\"\n}" },
+            "url": "{{baseUrl}}/orders/{{orderId}}/assign-rider"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Riders",
+      "item": [
+        {
+          "name": "Apply as a rider (public)",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Muhammad Bilal\",\n  \"email\": \"bilal.rider@example.com\",\n  \"phone\": \"03001112233\",\n  \"vehicleType\": \"Honda CD 70\",\n  \"plateNumber\": \"LEB 4521\",\n  \"documentUrls\": []\n}" },
+            "url": "{{baseUrl}}/riders/apply"
+          }
+        },
+        {
+          "name": "List riders (admin)",
+          "event": [{ "listen": "test", "script": { "exec": ["const b = pm.response.json();", "if (b.data && b.data.items && b.data.items[0]) pm.collectionVariables.set('riderId', b.data.items[0].id);"] } }],
+          "request": {
+            "method": "GET",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}" }] },
+            "url": { "raw": "{{baseUrl}}/riders?page=1&perPage=25", "host": ["{{baseUrl}}"], "path": ["riders"], "query": [{ "key": "page", "value": "1" }, { "key": "perPage", "value": "25" }, { "key": "status", "value": "pending", "disabled": true }] }
+          }
+        },
+        { "name": "Pending riders (admin)", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}" }] }, "url": "{{baseUrl}}/riders/pending" } },
+        {
+          "name": "Approve / reject rider (admin)",
+          "request": {
+            "method": "PUT",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"approved\"\n}" },
+            "url": "{{baseUrl}}/riders/{{riderId}}/approve",
+            "description": "status: approved | rejected | suspended | pending. A reason is required for rejected and suspended."
+          }
+        },
+        {
+          "name": "Update rider location",
+          "request": {
+            "method": "PUT",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"latitude\": 31.5,\n  \"longitude\": 74.35,\n  \"heading\": 90\n}" },
+            "url": "{{baseUrl}}/riders/{{riderId}}/location",
+            "description": "Broadcasts rider:location to the customer app and the admin dashboard for every active order of this rider."
+          }
+        },
+        { "name": "Delete rider (admin)", "request": { "method": "DELETE", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}" }] }, "url": "{{baseUrl}}/riders/{{riderId}}" } }
+      ]
+    },
+    {
+      "name": "Admin",
+      "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}" }] },
+      "item": [
+        { "name": "Dashboard stats", "request": { "method": "GET", "url": "{{baseUrl}}/admin/stats" } },
+        { "name": "List users", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/admin/users?page=1&perPage=25", "host": ["{{baseUrl}}"], "path": ["admin", "users"], "query": [{ "key": "page", "value": "1" }, { "key": "perPage", "value": "25" }, { "key": "role", "value": "customer", "disabled": true }] } } },
+        { "name": "Block / unblock user", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"blocked\": true\n}" }, "url": "{{baseUrl}}/admin/users/USER_ID/block" } },
+        { "name": "Create admin", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Ops Manager\",\n  \"email\": \"ops@quickcart.pk\",\n  \"password\": \"StrongPassword123\"\n}" }, "url": "{{baseUrl}}/admin/admins" } },
+        { "name": "List stores", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/admin/stores?page=1&perPage=25", "host": ["{{baseUrl}}"], "path": ["admin", "stores"], "query": [{ "key": "page", "value": "1" }, { "key": "perPage", "value": "25" }, { "key": "status", "value": "pending", "disabled": true }] } } },
+        { "name": "Store detail (with menu)", "request": { "method": "GET", "url": "{{baseUrl}}/admin/stores/{{storeId}}" } },
+        {
+          "name": "Create store",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Karahi Point\",\n  \"category\": \"restaurants\",\n  \"area\": \"DHA Phase 5\",\n  \"address\": \"Sector C, Commercial Area, DHA Phase 5, Lahore\",\n  \"location\": { \"latitude\": 31.4697, \"longitude\": 74.41 },\n  \"deliveryTimeMin\": 30,\n  \"deliveryTimeMax\": 40,\n  \"deliveryFee\": 99,\n  \"minOrder\": 500,\n  \"tags\": [\"Karahi\", \"Desi\", \"BBQ\"],\n  \"isOpen\": true\n}" },
+            "url": "{{baseUrl}}/admin/stores"
+          }
+        },
+        { "name": "Update store", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"deliveryFee\": 79,\n  \"isOpen\": false\n}" }, "url": "{{baseUrl}}/admin/stores/{{storeId}}" } },
+        { "name": "Approve store", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"status\": \"approved\"\n}" }, "url": "{{baseUrl}}/admin/stores/{{storeId}}/approve" } },
+        { "name": "Delete store", "request": { "method": "DELETE", "url": "{{baseUrl}}/admin/stores/{{storeId}}" } },
+        { "name": "Create menu section", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Starters\",\n  \"sortOrder\": 0\n}" }, "url": "{{baseUrl}}/admin/stores/{{storeId}}/menu-categories" } },
+        { "name": "List products", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/admin/products?page=1&perPage=50", "host": ["{{baseUrl}}"], "path": ["admin", "products"], "query": [{ "key": "page", "value": "1" }, { "key": "perPage", "value": "50" }, { "key": "storeId", "value": "{{storeId}}", "disabled": true }] } } },
+        {
+          "name": "Create product",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"storeId\": \"{{storeId}}\",\n  \"name\": \"Chicken Biryani\",\n  \"description\": \"Classic Lahori chicken biryani with aloo.\",\n  \"price\": 350,\n  \"discountPercent\": 0,\n  \"isPopular\": true,\n  \"inStock\": true\n}" },
+            "url": "{{baseUrl}}/admin/products"
+          }
+        },
+        { "name": "Update product (price / stock)", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"price\": 380,\n  \"inStock\": false\n}" }, "url": "{{baseUrl}}/admin/products/{{productId}}" } },
+        { "name": "Delete product", "request": { "method": "DELETE", "url": "{{baseUrl}}/admin/products/{{productId}}" } },
+        { "name": "Categories", "request": { "method": "GET", "url": "{{baseUrl}}/admin/categories" } },
+        { "name": "Create category", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Restaurants\",\n  \"slug\": \"restaurants\",\n  \"icon\": \"restaurant-outline\",\n  \"type\": \"store\",\n  \"sortOrder\": 1\n}" }, "url": "{{baseUrl}}/admin/categories" } },
+        { "name": "Banners", "request": { "method": "GET", "url": "{{baseUrl}}/admin/banners" } },
+        { "name": "Create banner", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"title\": \"20% off your first order\",\n  \"subtitle\": \"Code WELCOME20 · up to Rs 300\",\n  \"label\": \"LIMITED OFFER\",\n  \"targetType\": \"offers\",\n  \"colorFrom\": \"#FF6B35\",\n  \"colorTo\": \"#FF8F5E\",\n  \"sortOrder\": 0,\n  \"isActive\": true\n}" }, "url": "{{baseUrl}}/admin/banners" } },
+        { "name": "Coupons", "request": { "method": "GET", "url": "{{baseUrl}}/admin/coupons" } },
+        { "name": "Create coupon", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"code\": \"WELCOME20\",\n  \"description\": \"20% off your first order (up to Rs 300)\",\n  \"type\": \"percent\",\n  \"value\": 20,\n  \"maxDiscount\": 300,\n  \"minOrder\": 0,\n  \"expiryDate\": \"2026-12-31T23:59:59.000Z\",\n  \"isActive\": true\n}" }, "url": "{{baseUrl}}/admin/coupons" } },
+        { "name": "Reviews", "request": { "method": "GET", "url": "{{baseUrl}}/admin/reviews" } },
+        { "name": "Approve / hide review", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"approved\": false\n}" }, "url": "{{baseUrl}}/admin/reviews/REVIEW_ID/approve" } },
+        { "name": "FAQs", "request": { "method": "GET", "url": "{{baseUrl}}/admin/faqs" } },
+        { "name": "Get settings", "request": { "method": "GET", "url": "{{baseUrl}}/admin/settings" } },
+        {
+          "name": "Update settings",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"taxPercent\": 16,\n  \"taxLabel\": \"GST (16%)\",\n  \"platformFee\": 29,\n  \"baseDeliveryFee\": 99,\n  \"supportPhone\": \"042 111 000 123\"\n}" },
+            "url": "{{baseUrl}}/admin/settings",
+            "description": "Changes here are live in the customer app on its next request."
+          }
+        },
+        { "name": "Broadcast push", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"title\": \"Weekend offer\",\n  \"body\": \"Flat Rs 100 off all biryani orders this weekend.\",\n  \"role\": \"CUSTOMER\"\n}" }, "url": "{{baseUrl}}/admin/broadcast" } }
+      ]
+    },
+    {
+      "name": "Uploads",
+      "item": [
+        {
+          "name": "Upload image",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}" }] },
+            "body": { "mode": "formdata", "formdata": [{ "key": "file", "type": "file", "src": [] }] },
+            "url": { "raw": "{{baseUrl}}/uploads?folder=products", "host": ["{{baseUrl}}"], "path": ["uploads"], "query": [{ "key": "folder", "value": "products" }] },
+            "description": "folder: products | stores | riders | banners | avatars | documents. Max 5 MB, JPEG/PNG/WebP/GIF. Returns { url, publicId } from Cloudinary."
+          }
+        }
+      ]
+    }
+  ]
+}
