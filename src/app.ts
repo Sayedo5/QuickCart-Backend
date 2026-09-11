@@ -3,6 +3,7 @@ import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import { corsOptions } from './config/cors';
 import { env } from './config/env';
 import { applyStore } from './controllers/adminController';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
@@ -44,13 +45,15 @@ export const createApp = () => {
   const app = express();
 
   app.set('trust proxy', 1);
-  app.use(helmet());
-  app.use(
-    cors({
-      origin: env.clientOrigins.includes('*') ? true : env.clientOrigins,
-      credentials: true,
-    }),
-  );
+  // CORS is registered before helmet and every route so that preflight OPTIONS
+  // requests get their headers even when a later middleware would reject the
+  // request, and so helmet's cross-origin policies never pre-empt the response.
+  app.use(cors(corsOptions));
+  // Express 5 removed `app.options('*')`; this terminates any preflight that
+  // reaches the app with the CORS headers already applied above, so it never
+  // falls through to the rate limiter, the 404 handler or an auth guard.
+  app.use((req, res, next) => (req.method === 'OPTIONS' ? res.sendStatus(204) : next()));
+  app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
   app.use(compression());
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: true }));

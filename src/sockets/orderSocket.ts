@@ -1,5 +1,6 @@
 import { Server as HttpServer } from 'http';
 import { Server, Socket } from 'socket.io';
+import { socketCorsOptions } from '../config/cors';
 import { env } from '../config/env';
 import { prisma } from '../config/db';
 import { verifyAccessToken } from '../utils/jwt';
@@ -26,7 +27,7 @@ interface SocketUser {
 
 export const initSockets = (server: HttpServer) => {
   io = new Server(server, {
-    cors: { origin: env.clientOrigins.includes('*') ? true : env.clientOrigins, credentials: true },
+    cors: socketCorsOptions,
     pingInterval: 20_000,
     pingTimeout: 20_000,
   });

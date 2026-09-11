@@ -20,6 +20,8 @@ try {
   // Required lazily so a missing/invalid env var surfaces as readable JSON
   // instead of an opaque 500 with no body.
   const { createApp } = require('../src/app') as typeof import('../src/app');
+  const { describeCorsConfig } = require('../src/config/cors') as typeof import('../src/config/cors');
+  console.log(describeCorsConfig());
   app = createApp() as unknown as NodeHandler;
 } catch (err) {
   initError = err instanceof Error ? err : new Error(String(err));
