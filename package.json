@@ -15,7 +15,8 @@
     "prisma:studio": "prisma studio",
     "seed": "tsx prisma/seed.ts",
     "smoke": "tsx scripts/smoke.ts",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "integration": "tsx scripts/integration.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -51,6 +52,7 @@
     "@types/node": "^26.5.0",
     "@types/nodemailer": "^8.0.1",
     "prisma": "^6.19.3",
+    "socket.io-client": "^4.8.3",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2"
   }
