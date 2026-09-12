@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../config/db';
 import { getQuery } from '../middleware/validate';
+import { cityOut, findCity, nearestCity } from '../services/cityService';
 import { broadcast } from '../services/notificationService';
 import { getSettings } from '../services/pricingService';
 import { emitToAdmins } from '../sockets/orderSocket';
@@ -106,13 +107,90 @@ export const createAdmin = async (req: Request, res: Response) => {
   created(res, userOut(user), 'Admin account ready.');
 };
 
+// ───────────────────────── Service cities ─────────────────────────
+
+type CityBody = {
+  name: string;
+  slug?: string;
+  province?: string | null;
+  location: { latitude: number; longitude: number };
+  radiusKm: number;
+  baseDeliveryFee: number;
+  perKmFee: number;
+  minOrderAmount: number;
+  etaBaseMin: number;
+  etaPerKmMin: number;
+  isActive: boolean;
+  sortOrder: number;
+};
+
+const slugify = (v: string) => v.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+const cityData = (b: Partial<CityBody>) => ({
+  name: b.name,
+  slug: b.slug ?? (b.name ? slugify(b.name) : undefined),
+  province: b.province,
+  lat: b.location?.latitude,
+  lng: b.location?.longitude,
+  radiusKm: b.radiusKm,
+  baseDeliveryFee: b.baseDeliveryFee,
+  perKmFee: b.perKmFee,
+  minOrderAmount: b.minOrderAmount,
+  etaBaseMin: b.etaBaseMin,
+  etaPerKmMin: b.etaPerKmMin,
+  isActive: b.isActive,
+  sortOrder: b.sortOrder,
+});
+
+/** Every city, active or not, each with how many stores it currently holds. */
+export const listCitiesAdmin = async (_req: Request, res: Response) => {
+  const [cities, grouped] = await Promise.all([
+    prisma.serviceCity.findMany({ orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] }),
+    prisma.store.groupBy({ by: ['city'], _count: { _all: true } }),
+  ]);
+  const counts = new Map(grouped.map((g) => [g.city, g._count._all]));
+  ok(res, cities.map((c) => ({ ...cityOut(c), storeCount: counts.get(c.name) ?? 0 })));
+};
+
+export const createCity = async (req: Request, res: Response) => {
+  const b = req.body as CityBody;
+  const existing = await findCity(b.name);
+  if (existing) throw new AppError('CITY_EXISTS', `${existing.name} is already a service city.`, 409);
+  const city = await prisma.serviceCity.create({ data: cityData(b) as Parameters<typeof prisma.serviceCity.create>[0]['data'] });
+  created(res, cityOut(city), `${city.name} added.`);
+};
+
+export const updateCity = async (req: Request, res: Response) => {
+  const existing = await prisma.serviceCity.findUnique({ where: { id: req.params.id as string } });
+  if (!existing) throw notFound('City');
+  const body = req.body as Partial<CityBody>;
+  const city = await prisma.serviceCity.update({ where: { id: existing.id }, data: cityData(body) });
+  // Renaming a city must carry its stores with it, or they fall out of every list.
+  if (body.name && body.name !== existing.name) {
+    await prisma.store.updateMany({ where: { city: existing.name }, data: { city: city.name } });
+  }
+  ok(res, cityOut(city), `${city.name} updated.`);
+};
+
+export const deleteCity = async (req: Request, res: Response) => {
+  const existing = await prisma.serviceCity.findUnique({ where: { id: req.params.id as string } });
+  if (!existing) throw notFound('City');
+  const storeCount = await prisma.store.count({ where: { city: existing.name } });
+  if (storeCount > 0) {
+    throw new AppError('CITY_IN_USE', `${existing.name} still has ${storeCount} store${storeCount === 1 ? '' : 's'}. Move or delete them first, or just deactivate the city.`, 409);
+  }
+  await prisma.serviceCity.delete({ where: { id: existing.id } });
+  ok(res, null, `${existing.name} removed.`);
+};
+
 // ───────────────────────── Stores ─────────────────────────
 
-type StoreBody = { name: string; category: string; area: string; address: string; description?: string | null; image?: string | null; coverImage?: string | null; location: { latitude: number; longitude: number }; deliveryTimeMin: number; deliveryTimeMax: number; deliveryFee: number; minOrder: number; distanceKm?: number | null; tags: string[]; promoLabel?: string | null; isOpen: boolean; ownerName?: string | null; ownerContact?: string | null };
+type StoreBody = { name: string; category: string; city: string; area: string; address: string; description?: string | null; image?: string | null; coverImage?: string | null; location: { latitude: number; longitude: number }; deliveryTimeMin: number; deliveryTimeMax: number; deliveryFee: number; minOrder: number; distanceKm?: number | null; tags: string[]; promoLabel?: string | null; isOpen: boolean; ownerName?: string | null; ownerContact?: string | null };
 
 const storeData = (b: Partial<StoreBody>): Prisma.StoreUpdateInput => ({
   name: b.name,
   category: b.category ? storeCategoryIn(b.category) : undefined,
+  city: b.city,
   area: b.area,
   address: b.address,
   description: b.description,
@@ -133,11 +211,12 @@ const storeData = (b: Partial<StoreBody>): Prisma.StoreUpdateInput => ({
 });
 
 export const listStores = async (req: Request, res: Response) => {
-  const q = getQuery<{ page?: number; perPage?: number; q?: string; status?: string; category?: string }>(req);
+  const q = getQuery<{ page?: number; perPage?: number; q?: string; status?: string; category?: string; city?: string }>(req);
   const page = pageQuery(q as Record<string, unknown>, 25);
   const where: Prisma.StoreWhereInput = {};
   if (q.status && q.status !== 'all') where.status = q.status.toUpperCase() as Prisma.StoreWhereInput['status'];
   if (q.category && q.category !== 'all') where.category = storeCategoryIn(q.category);
+  if (q.city && q.city !== 'all') where.city = q.city;
   if (q.q) where.OR = [{ name: { contains: q.q, mode: 'insensitive' } }, { area: { contains: q.q, mode: 'insensitive' } }];
   const [rows, total] = await Promise.all([
     prisma.store.findMany({ where, orderBy: [{ status: 'asc' }, { createdAt: 'desc' }], skip: page.skip, take: page.perPage, include: { _count: { select: { products: true, orders: true } } } }),
@@ -152,17 +231,32 @@ export const getStore = async (req: Request, res: Response) => {
   ok(res, { ...storeOut(store), menuCategories: store.menuCategories.map(menuCategoryOut), products: store.products.map(productOut) });
 };
 
+/**
+ * The admin may set the city explicitly; when they don't, derive it from the
+ * pin they dropped so no store is ever left unassigned.
+ */
+const cityForStore = async (explicit: string | undefined, location: { latitude: number; longitude: number }): Promise<string> => {
+  const named = await findCity(explicit);
+  if (named) return named.name;
+  const match = await nearestCity(location);
+  if (match) return match.city.name;
+  const settings = await getSettings();
+  return settings.serviceCity;
+};
+
 export const createStore = async (req: Request, res: Response) => {
   const b = req.body as StoreBody;
-  const store = await prisma.store.create({ data: { ...(storeData(b) as Prisma.StoreCreateInput), name: b.name, category: storeCategoryIn(b.category), area: b.area, address: b.address, lat: b.location.latitude, lng: b.location.longitude, status: 'APPROVED' } });
+  const city = await cityForStore(b.city, b.location);
+  const store = await prisma.store.create({ data: { ...(storeData({ ...b, city }) as Prisma.StoreCreateInput), name: b.name, category: storeCategoryIn(b.category), city, area: b.area, address: b.address, lat: b.location.latitude, lng: b.location.longitude, status: 'APPROVED' } });
   emitToAdmins('store:updated', storeOut(store));
   created(res, storeOut(store), 'Store created.');
 };
 
 /** Public store application (pending until approved). */
 export const applyStore = async (req: Request, res: Response) => {
-  const b = req.body as Pick<StoreBody, 'name' | 'category' | 'area' | 'address' | 'description' | 'location' | 'ownerName' | 'ownerContact' | 'image'>;
-  const store = await prisma.store.create({ data: { name: b.name, category: storeCategoryIn(b.category), area: b.area, address: b.address, description: b.description ?? null, imageUrl: b.image ?? null, lat: b.location.latitude, lng: b.location.longitude, ownerName: b.ownerName ?? null, ownerContact: b.ownerContact ?? null, status: 'PENDING', isOpen: false } });
+  const b = req.body as Pick<StoreBody, 'name' | 'category' | 'city' | 'area' | 'address' | 'description' | 'location' | 'ownerName' | 'ownerContact' | 'image'>;
+  const city = await cityForStore(b.city, b.location);
+  const store = await prisma.store.create({ data: { name: b.name, category: storeCategoryIn(b.category), city, area: b.area, address: b.address, description: b.description ?? null, imageUrl: b.image ?? null, lat: b.location.latitude, lng: b.location.longitude, ownerName: b.ownerName ?? null, ownerContact: b.ownerContact ?? null, status: 'PENDING', isOpen: false } });
   emitToAdmins('store:updated', storeOut(store));
   created(res, storeOut(store), 'Application received. Our team will review it shortly.');
 };
@@ -170,7 +264,9 @@ export const applyStore = async (req: Request, res: Response) => {
 export const updateStore = async (req: Request, res: Response) => {
   const existing = await prisma.store.findUnique({ where: { id: req.params.id as string } });
   if (!existing) throw notFound('Store');
-  const store = await prisma.store.update({ where: { id: existing.id }, data: storeData(req.body as Partial<StoreBody>) });
+  const body = req.body as Partial<StoreBody>;
+  const city = body.city ? await cityForStore(body.city, body.location ?? { latitude: existing.lat, longitude: existing.lng }) : undefined;
+  const store = await prisma.store.update({ where: { id: existing.id }, data: storeData({ ...body, city }) });
   emitToAdmins('store:updated', storeOut(store));
   ok(res, storeOut(store), 'Store updated.');
 };

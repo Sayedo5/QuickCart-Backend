@@ -1,6 +1,7 @@
-import { Coupon, Product, Settings, Store } from '@prisma/client';
+import { Coupon, Product, ServiceCity, Settings, Store } from '@prisma/client';
 import { prisma } from '../config/db';
 import { AppError } from '../utils/errors';
+import { deliveryFeeFor, etaFor, findCity, LatLng } from './cityService';
 
 /**
  * Server-side cart pricing. The mobile app never computes money on its own —
@@ -28,6 +29,10 @@ export interface QuoteLine {
 export interface Quote {
   store: Store;
   settings: Settings;
+  /** The store's service city — drives the delivery fee, ETA and minimum order. */
+  city: ServiceCity | null;
+  etaMin: number;
+  etaMax: number;
   lines: QuoteLine[];
   subtotal: number;
   deliveryFee: number;
@@ -61,9 +66,11 @@ export const findValidCoupon = async (code: string, subtotal: number): Promise<C
   return coupon;
 };
 
-export const quoteCart = async (input: { storeId: string; items: QuoteInputItem[]; couponCode?: string | null; clientPrices?: Record<string, number> }): Promise<Quote> => {
+export const quoteCart = async (input: { storeId: string; items: QuoteInputItem[]; couponCode?: string | null; clientPrices?: Record<string, number>; dropOff?: LatLng | null }): Promise<Quote> => {
   const [store, settings] = await Promise.all([prisma.store.findUnique({ where: { id: input.storeId } }), getSettings()]);
   if (!store || store.status !== 'APPROVED') throw new AppError('STORE_NOT_FOUND', 'Store not found.', 404);
+  // Pricing follows the store's city, not a single hard-coded location.
+  const city = (await findCity(store.city)) ?? (await findCity(settings.serviceCity));
 
   const ids = input.items.map((i) => i.productId);
   const products = await prisma.product.findMany({ where: { id: { in: ids }, storeId: store.id } });
@@ -92,7 +99,7 @@ export const quoteCart = async (input: { storeId: string; items: QuoteInputItem[
 
   let coupon: Coupon | null = null;
   let discount = 0;
-  let deliveryFee = store.deliveryFee;
+  let deliveryFee = city ? deliveryFeeFor(city, store, input.dropOff) : store.deliveryFee;
   if (input.couponCode && subtotal > 0) {
     coupon = await findValidCoupon(input.couponCode, subtotal);
     if (coupon.discountType === 'PERCENT') discount = round(Math.min(subtotal * (coupon.discountValue / 100), coupon.maxDiscount ?? Infinity));
@@ -104,8 +111,12 @@ export const quoteCart = async (input: { storeId: string; items: QuoteInputItem[
   const tax = round((subtotal - discount) * (settings.taxPercent / 100));
   const total = itemCount > 0 ? round(subtotal - discount + deliveryFee + serviceFee + tax) : 0;
 
-  return { store, settings, lines, subtotal, deliveryFee: itemCount > 0 ? deliveryFee : 0, serviceFee, tax, discount, total, itemCount, coupon, issues };
+  const eta = city ? etaFor(city, store, input.dropOff) : { min: store.deliveryTimeMin, max: store.deliveryTimeMax };
+  return { store, settings, city, etaMin: eta.min, etaMax: eta.max, lines, subtotal, deliveryFee: itemCount > 0 ? deliveryFee : 0, serviceFee, tax, discount, total, itemCount, coupon, issues };
 };
+
+/** A store can set a higher bar than its city, never a lower one. */
+export const minOrderFor = (q: Pick<Quote, 'store' | 'city'>) => Math.max(q.store.minOrderAmount, q.city?.minOrderAmount ?? 0);
 
 export const quoteOut = (q: Quote) => ({
   subtotal: q.subtotal,
@@ -116,7 +127,10 @@ export const quoteOut = (q: Quote) => ({
   total: q.total,
   itemCount: q.itemCount,
   taxLabel: q.settings.taxLabel,
-  minOrder: q.store.minOrderAmount,
+  minOrder: minOrderFor(q),
+  city: q.city?.name ?? q.store.city,
+  etaMin: q.etaMin,
+  etaMax: q.etaMax,
   issues: q.issues,
   promo: q.coupon
     ? {

@@ -15,6 +15,7 @@ import {
   menuCategorySchema,
   paginationQuery,
   productSchema,
+  serviceCitySchema,
   settingsSchema,
   storeSchema,
 } from '../validators/schemas';
@@ -30,8 +31,14 @@ adminRoutes.get('/users/:id', wrap(admin.getUser));
 adminRoutes.put('/users/:id/block', validate(blockSchema), wrap(admin.setBlocked));
 adminRoutes.post('/admins', validate(z.object({ name: z.string().min(2), email: z.string().email(), password: z.string().min(8) })), wrap(admin.createAdmin));
 
+// Service cities
+adminRoutes.get('/cities', wrap(admin.listCitiesAdmin));
+adminRoutes.post('/cities', validate(serviceCitySchema), wrap(admin.createCity));
+adminRoutes.put('/cities/:id', validate(serviceCitySchema.partial()), wrap(admin.updateCity));
+adminRoutes.delete('/cities/:id', wrap(admin.deleteCity));
+
 // Stores
-adminRoutes.get('/stores', validate(paginationQuery.extend({ status: z.string().optional(), category: z.string().optional() }), 'query'), wrap(admin.listStores));
+adminRoutes.get('/stores', validate(paginationQuery.extend({ status: z.string().optional(), category: z.string().optional(), city: z.string().optional() }), 'query'), wrap(admin.listStores));
 adminRoutes.get('/stores/:id', wrap(admin.getStore));
 adminRoutes.post('/stores', validate(storeSchema), wrap(admin.createStore));
 adminRoutes.put('/stores/:id', validate(storeSchema.partial()), wrap(admin.updateStore));

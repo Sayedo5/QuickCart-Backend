@@ -7,12 +7,15 @@ import { paginationQuery, validateCouponSchema } from '../validators/schemas';
 
 export const catalogRoutes = Router();
 
-catalogRoutes.get('/stores', validate(paginationQuery.extend({ category: z.string().optional() }), 'query'), wrap(catalog.listStores));
+catalogRoutes.get('/stores', validate(paginationQuery.extend({ category: z.string().optional(), city: z.string().optional() }), 'query'), wrap(catalog.listStores));
 catalogRoutes.get('/stores/:id', wrap(catalog.getStore));
+catalogRoutes.get('/stores/:id/estimate', wrap(catalog.storeEstimate));
 catalogRoutes.get('/stores/:id/menu', wrap(catalog.getMenu));
 catalogRoutes.get('/stores/:id/reviews', wrap(catalog.listStoreReviews));
 catalogRoutes.get('/search', wrap(catalog.search));
 catalogRoutes.get('/categories', wrap(catalog.listCategories));
+catalogRoutes.get('/cities', wrap(catalog.listCities));
+catalogRoutes.get('/cities/resolve', wrap(catalog.resolveCityFromLocation));
 catalogRoutes.get('/banners', wrap(catalog.listBanners));
 catalogRoutes.get('/coupons', wrap(catalog.listCoupons));
 catalogRoutes.post('/coupons/validate', validate(validateCouponSchema), wrap(catalog.validateCoupon));

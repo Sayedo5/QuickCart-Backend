@@ -189,6 +189,8 @@ model Store {
   id              String         @id @default(uuid())
   name            String
   category        StoreCategory
+  /// Service city this store belongs to — must match a ServiceCity.name.
+  city            String         @default("Lahore")
   area            String
   address         String
   description     String?
@@ -221,6 +223,7 @@ model Store {
   favourites     Favourite[]
 
   @@index([category, status])
+  @@index([city, status])
 }
 
 /// Menu sections inside one store (Starters, Karahi, Drinks…).
@@ -306,6 +309,8 @@ model Settings {
   platformFee       Float    @default(29)
   baseDeliveryFee   Float    @default(99)
   minOrderDefault   Float    @default(300)
+  /// Fallback city used when a client has not picked one yet. The full list of
+  /// live cities lives in the ServiceCity table.
   serviceCity       String   @default("Lahore")
   supportEmail      String?
   supportPhone      String?
@@ -316,6 +321,34 @@ model Settings {
   announcementBody  String?
   appBannerImages   String[] @default([])
   updatedAt         DateTime @updatedAt
+}
+
+/// One city QuickCart delivers in. Delivery fee, ETA and the service radius are
+/// configured per city instead of being hard-coded to a single location.
+model ServiceCity {
+  id              String   @id @default(uuid())
+  name            String   @unique
+  slug            String   @unique
+  province        String?
+  /// City centre — used for the "nearest city" lookup when a customer shares GPS.
+  lat             Float
+  lng             Float
+  /// Stores and addresses beyond this many km from the centre are out of range.
+  radiusKm        Float    @default(25)
+  /// Flat fee applied to every order in this city, before the per-km component.
+  baseDeliveryFee Float    @default(99)
+  /// Added per km of store→customer distance.
+  perKmFee        Float    @default(12)
+  minOrderAmount  Float    @default(300)
+  /// ETA = etaBaseMin + distanceKm * etaPerKmMin, clamped by the store's own range.
+  etaBaseMin      Int      @default(20)
+  etaPerKmMin     Float    @default(2.5)
+  isActive        Boolean  @default(true)
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
 }
 
 // ───────────────────────── Orders ─────────────────────────

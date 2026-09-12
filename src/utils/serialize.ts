@@ -61,6 +61,7 @@ export const storeOut = (s: Store) => ({
   id: s.id,
   name: s.name,
   category: storeCategoryOut(s.category),
+  city: s.city,
   image: s.imageUrl ?? '',
   coverImage: s.coverImageUrl ?? s.imageUrl ?? '',
   description: s.description ?? undefined,
