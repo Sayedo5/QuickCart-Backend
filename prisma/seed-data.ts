@@ -1,6 +1,9 @@
 /**
  * Seed catalog for the Lahore market. Mirrors the data the mobile app used to
  * hard-code, so the app looks identical once it is pointed at the real API.
+ *
+ * Stores for the other five service cities live in seed-cities.ts and share the
+ * SeedStore shape and the IMG catalog exported from here.
  */
 
 const img = (id: string, w = 800) => `https://images.unsplash.com/${id}?auto=format&fit=crop&w=${w}&q=75`;
@@ -140,6 +143,8 @@ export type SeedStore = {
   slug: string;
   name: string;
   category: 'RESTAURANTS' | 'GROCERY' | 'PHARMACY';
+  /** Service city. Optional here so the original Lahore list stays untouched. */
+  city?: string;
   photo: string;
   rating: number;
   ratingCount: number;
@@ -160,7 +165,7 @@ export type SeedStore = {
   menu: Array<{ name: string; items: SeedProduct[] }>;
 };
 
-const p = (name: string, description: string, price: number, image: string, extra: Partial<SeedProduct> = {}): SeedProduct => ({ name, description, price, image, ...extra });
+export const p = (name: string, description: string, price: number, image: string, extra: Partial<SeedProduct> = {}): SeedProduct => ({ name, description, price, image, ...extra });
 
 export const STORES: SeedStore[] = [
   {

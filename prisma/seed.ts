@@ -1,7 +1,11 @@
 import bcrypt from 'bcryptjs';
 import { PrismaClient } from '@prisma/client';
 import { env } from '../src/config/env';
+import { CITY_STORES, SERVICE_CITIES } from './seed-cities';
 import { BANNERS, CATEGORIES, COUPONS, FAQS, RIDERS, STORES } from './seed-data';
+
+/** Lahore stores predate the city column, so they carry no explicit city. */
+const ALL_STORES = [...STORES.map((s) => ({ ...s, city: s.city ?? 'Lahore' })), ...CITY_STORES];
 
 const prisma = new PrismaClient();
 
@@ -9,6 +13,32 @@ const img = (id: string, w: number) => `https://images.unsplash.com/${id}?auto=f
 
 async function main() {
   console.log('🌱 Seeding QuickCart…');
+
+  // ── Service cities ──
+  // Upserted by name so re-running the seed never duplicates a city or resets
+  // radius/fee tuning an admin has since changed in the panel.
+  for (const c of SERVICE_CITIES) {
+    await prisma.serviceCity.upsert({
+      where: { name: c.name },
+      update: { slug: c.slug, province: c.province, lat: c.lat, lng: c.lng, sortOrder: c.sortOrder, isActive: true },
+      create: {
+        name: c.name,
+        slug: c.slug,
+        province: c.province,
+        lat: c.lat,
+        lng: c.lng,
+        radiusKm: c.radiusKm,
+        baseDeliveryFee: c.baseDeliveryFee,
+        perKmFee: c.perKmFee,
+        minOrderAmount: c.minOrderAmount,
+        etaBaseMin: c.etaBaseMin,
+        etaPerKmMin: c.etaPerKmMin,
+        sortOrder: c.sortOrder,
+        isActive: true,
+      },
+    });
+  }
+  console.log(`   cities: ${SERVICE_CITIES.map((c) => c.name).join(', ')}`);
 
   // ── Settings ──
   await prisma.settings.upsert({
@@ -77,11 +107,12 @@ async function main() {
 
   // ── Stores, menu sections, products ──
   let productTotal = 0;
-  for (const s of STORES) {
+  for (const s of ALL_STORES) {
     const existing = await prisma.store.findFirst({ where: { name: s.name } });
     const data = {
       name: s.name,
       category: s.category,
+      city: s.city ?? 'Lahore',
       area: s.area,
       address: s.address,
       imageUrl: img(s.photo, 600),
@@ -162,6 +193,7 @@ async function main() {
       data: {
         name: 'Lahore Tandoor House',
         category: 'RESTAURANTS',
+        city: 'Lahore',
         area: 'Garden Town',
         address: 'Main Boulevard, Garden Town, Lahore',
         description: 'Family-run tandoor serving fresh rotis, naan and daily desi handi.',
@@ -177,6 +209,9 @@ async function main() {
       },
     });
   }
+
+  const byCity = await prisma.store.groupBy({ by: ['city'], _count: { _all: true }, orderBy: { city: 'asc' } });
+  console.log(`   stores per city: ${byCity.map((c) => `${c.city} ${c._count._all}`).join(' · ')}`);
 
   const counts = {
     stores: await prisma.store.count(),
