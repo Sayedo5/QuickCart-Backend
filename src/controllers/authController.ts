@@ -74,14 +74,17 @@ export const verifyOtp = async (req: Request, res: Response) => {
 
 /** POST /api/auth/signup — completes registration after the email was verified. */
 export const signup = async (req: Request, res: Response) => {
-  const { signupToken, name, phone, dialCode } = req.body as { signupToken: string; name: string; phone: string; dialCode: string };
+  const { signupToken, name, phone, dialCode } = req.body as { signupToken: string; name?: string; phone?: string; dialCode: string };
   const email = verifySignupToken(signupToken);
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
     if (existing.isBlocked) throw new AppError('BLOCKED', 'This account has been blocked.', 403);
     return ok(res, await issueSession(existing), 'Signed in.');
   }
-  const user = await prisma.user.create({ data: { name, email, phone, dialCode, isVerified: true } });
+  // Fall back to the email's local part so the greeting reads as a name rather
+  // than as an empty string until the customer fills it in.
+  const displayName = name?.trim() || email.split('@')[0].replace(/[._-]+/g, ' ').replace(/w/g, (m) => m.toUpperCase());
+  const user = await prisma.user.create({ data: { name: displayName, email, phone: phone ?? null, dialCode, isVerified: true } });
   // Seed the customer's default payment options so checkout works immediately.
   await prisma.paymentMethod.createMany({
     data: [

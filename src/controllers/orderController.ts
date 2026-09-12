@@ -2,8 +2,9 @@ import { Request, Response } from 'express';
 import { OrderStatus, Prisma } from '@prisma/client';
 import { prisma } from '../config/db';
 import { getQuery } from '../middleware/validate';
+import { isWithinCity } from '../services/cityService';
 import { notifyUser } from '../services/notificationService';
-import { quoteCart, quoteOut } from '../services/pricingService';
+import { minOrderFor, quoteCart, quoteOut } from '../services/pricingService';
 import { emitOrderStatus, emitToAdmins } from '../sockets/orderSocket';
 import { AppError, forbidden, notFound } from '../utils/errors';
 import { created, ok, pageQuery, paginated } from '../utils/response';
@@ -34,9 +35,13 @@ const nextOrderNumber = async () => {
 // ───────────────────────── Customer ─────────────────────────
 
 export const quote = async (req: Request, res: Response) => {
-  const b = req.body as { storeId: string; items: Array<{ productId: string; quantity: number; unitPrice?: number }>; promoCode?: string | null };
+  const b = req.body as { storeId: string; items: Array<{ productId: string; quantity: number; unitPrice?: number }>; promoCode?: string | null; addressId?: string | null };
   const clientPrices = Object.fromEntries(b.items.filter((i) => i.unitPrice != null).map((i) => [i.productId, i.unitPrice as number]));
-  const q = await quoteCart({ storeId: b.storeId, items: b.items, couponCode: b.promoCode, clientPrices });
+  // Quote against the real drop-off when the app already knows it, so the fee
+  // shown in the cart is the same one checkout charges.
+  const address = b.addressId && req.user ? await prisma.address.findFirst({ where: { id: b.addressId, userId: req.user.id } }) : null;
+  const dropOff = address ? { latitude: address.lat, longitude: address.lng } : null;
+  const q = await quoteCart({ storeId: b.storeId, items: b.items, couponCode: b.promoCode, clientPrices, dropOff });
   ok(res, quoteOut(q));
 };
 
@@ -44,16 +49,25 @@ export const placeOrder = async (req: Request, res: Response) => {
   const b = req.body as { storeId: string; items: Array<{ productId: string; quantity: number; unitPrice?: number }>; promoCode?: string | null; addressId: string; paymentMethodId: string; note?: string | null };
   const user = req.user!;
 
-  const q = await quoteCart({ storeId: b.storeId, items: b.items, couponCode: b.promoCode });
+  const address = await prisma.address.findFirst({ where: { id: b.addressId, userId: user.id } });
+  if (!address) throw new AppError('ADDRESS_REQUIRED', 'Select a valid delivery address.', 422);
+
+  const q = await quoteCart({ storeId: b.storeId, items: b.items, couponCode: b.promoCode, dropOff: { latitude: address.lat, longitude: address.lng } });
   if (!q.store.isOpen) throw new AppError('STORE_CLOSED', `${q.store.name} is closed right now.`, 409);
   if (q.issues.some((i) => i.type === 'out_of_stock' || i.type === 'unavailable')) {
     throw new AppError('OUT_OF_STOCK', 'Some items in your cart are no longer available.', 409, q.issues);
   }
   if (q.lines.length === 0) throw new AppError('EMPTY_CART', 'Your cart is empty.', 422);
-  if (q.subtotal < q.store.minOrderAmount) throw new AppError('MIN_ORDER', `Minimum order for ${q.store.name} is Rs ${q.store.minOrderAmount}.`, 422);
+  const minOrder = minOrderFor(q);
+  if (q.subtotal < minOrder) throw new AppError('MIN_ORDER', `Minimum order for ${q.store.name} is Rs ${minOrder}.`, 422);
 
-  const address = await prisma.address.findFirst({ where: { id: b.addressId, userId: user.id } });
-  if (!address) throw new AppError('ADDRESS_REQUIRED', 'Select a valid delivery address.', 422);
+  // The store and the drop-off must be in the same city — a Lahore store cannot
+  // deliver to a Karachi address, and silently accepting that order is worse
+  // than refusing it.
+  if (q.city && !isWithinCity(q.city, { latitude: address.lat, longitude: address.lng })) {
+    throw new AppError('OUT_OF_RANGE', `${q.store.name} does not deliver to this address. It is outside the ${q.city.name} service area.`, 422);
+  }
+
   const method = await prisma.paymentMethod.findFirst({ where: { id: b.paymentMethodId, userId: user.id } });
   if (!method) throw new AppError('PAYMENT_REQUIRED', 'Select a valid payment method.', 422);
   if (method.type === 'WALLET' && user.walletBalance < q.total) {
@@ -61,7 +75,8 @@ export const placeOrder = async (req: Request, res: Response) => {
   }
 
   const orderNumber = await nextOrderNumber();
-  const eta = new Date(Date.now() + (q.store.deliveryTimeMax + 5) * 60_000);
+  // ETA comes from the city's own calibration (base prep + per-km travel).
+  const eta = new Date(Date.now() + (q.etaMax + 5) * 60_000);
 
   // Neon is a remote database, so every statement costs a round trip. Keep the
   // transaction to the writes that must be atomic and raise the default 5s cap.

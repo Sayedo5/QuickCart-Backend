@@ -33,10 +33,15 @@ export const verifyOtpSchema = z.object({
   code: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code.'),
 });
 
+/**
+ * Only the verified-email token is required. Name and phone are collected later
+ * (at checkout, where a rider actually needs them) so nothing stands between a
+ * new customer and the home screen.
+ */
 export const signupSchema = z.object({
   signupToken: z.string().min(10),
-  name: z.string().trim().min(2, 'Enter your full name.').max(80),
-  phone: pkMobile,
+  name: z.string().trim().min(2, 'Enter your full name.').max(80).optional(),
+  phone: pkMobile.optional(),
   dialCode: z.string().default('+92'),
 });
 
@@ -113,6 +118,8 @@ export const validateCouponSchema = z.object({ code: z.string().trim().min(2).to
 export const storeSchema = z.object({
   name: z.string().trim().min(2).max(80),
   category: z.enum(['restaurants', 'grocery', 'pharmacy']),
+  /** Must match a ServiceCity name; the admin panel offers the live list. */
+  city: z.string().trim().min(2).max(60).default('Lahore'),
   area: z.string().trim().min(2).max(80),
   address: z.string().trim().min(4).max(200),
   description: z.string().trim().max(600).optional().nullable(),
@@ -131,7 +138,7 @@ export const storeSchema = z.object({
   ownerContact: z.string().trim().max(80).optional().nullable(),
 });
 
-export const storeApplicationSchema = storeSchema.pick({ name: true, category: true, area: true, address: true, description: true, location: true, ownerName: true, ownerContact: true, image: true });
+export const storeApplicationSchema = storeSchema.pick({ name: true, category: true, city: true, area: true, address: true, description: true, location: true, ownerName: true, ownerContact: true, image: true });
 
 export const approvalSchema = z.object({ status: z.enum(['approved', 'rejected', 'suspended', 'pending']), reason: z.string().trim().max(300).optional() });
 
@@ -197,6 +204,7 @@ export const settingsSchema = z.object({
   platformFee: z.number().min(0).max(1000).optional(),
   baseDeliveryFee: z.number().min(0).max(2000).optional(),
   minOrderDefault: z.number().min(0).max(50_000).optional(),
+  /** Fallback city only — the live list is managed through /admin/cities. */
   serviceCity: z.string().trim().max(60).optional(),
   supportEmail: z.string().email().optional().nullable(),
   supportPhone: z.string().trim().max(30).optional().nullable(),
@@ -206,6 +214,21 @@ export const settingsSchema = z.object({
   announcementTitle: z.string().trim().max(80).optional().nullable(),
   announcementBody: z.string().trim().max(300).optional().nullable(),
   appBannerImages: z.array(z.string().url()).max(10).optional(),
+});
+
+export const serviceCitySchema = z.object({
+  name: z.string().trim().min(2).max(60),
+  slug: z.string().trim().min(2).max(60).regex(/^[a-z0-9-]+$/, 'Slug may contain lowercase letters, numbers and dashes only.').optional(),
+  province: z.string().trim().max(60).optional().nullable(),
+  location: latLng,
+  radiusKm: z.number().min(1).max(200).default(25),
+  baseDeliveryFee: z.number().min(0).max(2000).default(99),
+  perKmFee: z.number().min(0).max(500).default(12),
+  minOrderAmount: z.number().min(0).max(50_000).default(300),
+  etaBaseMin: z.number().int().min(5).max(180).default(20),
+  etaPerKmMin: z.number().min(0).max(30).default(2.5),
+  isActive: z.boolean().default(true),
+  sortOrder: z.number().int().min(0).default(0),
 });
 
 export const faqSchema = z.object({ question: z.string().trim().min(3).max(200), answer: z.string().trim().min(3).max(2000), sortOrder: z.number().int().min(0).default(0), isActive: z.boolean().default(true) });
